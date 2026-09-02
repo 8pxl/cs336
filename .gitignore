@@ -1,0 +1,47 @@
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.env
+
+# ---- Tooling caches ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# ---- Datasets (downloaded, not source) ----
+data/
+*/data/
+*.txt.gz
+*.jsonl
+*.arrow
+*.bin
+*.npy
+
+# ---- Training artifacts ----
+checkpoints/
+runs/
+wandb/
+*.pt
+*.ckpt
+*.safetensors
+
+# Trained tokenizer output (keep tests/fixtures/* which tests depend on)
+vocab.json
+merges.txt
+*_vocab.json
+*_merges.txt
+!**/tests/fixtures/**
+
+# ---- Build / render output ----
+assignment1-basics/output/
+assignment1-basics/tmp/
+*.zip
