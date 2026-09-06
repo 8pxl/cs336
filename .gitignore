@@ -1,47 +1,27 @@
-# ---- OS / editor ----
-.DS_Store
-.idea/
-.vscode/
+# Allowlist model: ignore everything, then re-include only code I write.
+# Assignment scaffolding, handouts, datasets and venvs stay untracked, so a
+# fresh clone = clone the upstream assignment repo, then drop these files in.
 
-# ---- Python ----
+/*
+!/.gitignore
+!/README.md
+
+# Scratch / experiments (all mine)
+!/random/
+
+# --- Per assignment, my code lives in exactly two places ---
+!/assignment*/
+/assignment*/*
+!/assignment*/cs336_*/
+
+!/assignment*/tests/
+/assignment*/tests/*
+!/assignment*/tests/adapters.py
+
+# --- Junk, at any depth (applies inside the allowlisted dirs above) ---
 __pycache__/
 *.py[cod]
-*.so
+.DS_Store
 .venv/
-venv/
-.env
-
-# ---- Tooling caches ----
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.ipynb_checkpoints/
-
-# ---- Datasets (downloaded, not source) ----
-data/
-*/data/
-*.txt.gz
-*.jsonl
-*.arrow
-*.bin
-*.npy
-
-# ---- Training artifacts ----
-checkpoints/
-runs/
-wandb/
 *.pt
-*.ckpt
-*.safetensors
-
-# Trained tokenizer output (keep tests/fixtures/* which tests depend on)
-vocab.json
-merges.txt
-*_vocab.json
-*_merges.txt
-!**/tests/fixtures/**
-
-# ---- Build / render output ----
-assignment1-basics/output/
-assignment1-basics/tmp/
-*.zip
+*.npy

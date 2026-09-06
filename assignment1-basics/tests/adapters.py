@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable
+from pathlib import Path
 from typing import IO, Any, BinaryIO
 
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
 from torch import Tensor
+
+from cs336_basics.bpe import BPETrainer
 
 
 def run_linear(
@@ -589,4 +592,7 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    raise NotImplementedError
+    trainer = BPETrainer(Path(input_path), vocab_size, special_tokens)
+    trainer.train()
+
+    return (trainer.get_vocab(), trainer.get_merges())
