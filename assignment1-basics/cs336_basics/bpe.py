@@ -74,6 +74,9 @@ class BPETrainer:
         self.file: Path = file
         self.vocab: dict[int, bytes] = {}
         self.merges: list[BytePair] = []
+        self.timings: dict[str, float] = {}
+        self.n_merges: int = 0
+        self.n_pretokens: int = 0
         self.pretoken_pattern: re.Pattern[str] = re.compile(r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
     def get_merges(self):
@@ -126,13 +129,20 @@ class BPETrainer:
                     pretoken_freq[m[0]] = 1 + pretoken_freq.get(m[0], 0)
         return pretoken_freq
 
-    def generate_byte_pairs(self, pretokens: list[Tokens], counts: list[int]) -> dict[BytePair, int]:
+    def generate_byte_pairs(self, pretokens: list[Tokens], counts: list[int]) -> tuple[dict[BytePair, int], dict[BytePair, list[int]]]:
         byte_pairs: dict[BytePair, int] = {}
+        pair_locations: dict[BytePair, list[int]] = {}
+        token_index = 0
         for token, freq in zip(pretokens, counts):
             for i in range(len(token) - 1):
                 pair = (token[i], token[i+1])
                 byte_pairs[pair] = byte_pairs.get(pair, 0) + freq
-        return byte_pairs
+                if pair not in pair_locations:
+                    pair_locations[pair] = [token_index]
+                else:
+                    pair_locations[pair].append(token_index)
+            token_index += 1
+        return byte_pairs, pair_locations
 
     def merge(
         self,
@@ -140,13 +150,14 @@ class BPETrainer:
         pretokens: list[Tokens],
         freqs: list[int],
         pair: BytePair,
+        pair_map: dict[BytePair, list[int]],
         token_id: int,
     ) -> None:
         pair_as_bytes = pair[0] + pair[1]
         self.vocab[token_id] = pair_as_bytes
         self.merges.append(pair)
 
-        for i in range(len(pretokens)):
+        for i in pair_map[pair]:
             freq = freqs[i]
             j = 0
             while j < len(pretokens[i]) - 1:
@@ -156,32 +167,86 @@ class BPETrainer:
                     if j > 0:
                         left = (pretoken[j - 1], pretoken[j])
                         new_left = (pretoken[j - 1], pair_as_bytes)
+                        #intentionally not clearing the right / left pairs because it cold appear later in the same token and i dont want to deal with ts
                         byte_pairs[left] -= freq
                         byte_pairs[new_left] = byte_pairs.get(new_left, 0) + freq
+                        if new_left not in pair_map:
+                            pair_map[new_left] = [i]
+                        else:
+                            pair_map[new_left].append(i)
                     if j + 2 < len(pretoken):
                         right = (pretoken[j + 1], pretoken[j + 2])
                         new_right = (pair_as_bytes, pretoken[j + 2])
                         byte_pairs[right] -= freq
+                        #intentionally not clearing the right / left pairs because it cold appear later in the same token and i dont want to deal with ts
                         byte_pairs[new_right] = byte_pairs.get(new_right, 0) + freq
+                        if new_right not in pair_map:
+                            pair_map[new_right] = [i]
+                        else:
+                            pair_map[new_right].append(i)
                 j += 1
         del byte_pairs[pair]
+        del pair_map[pair]
 
-    def train(self):
+    def train(self, verbose: bool = False) -> None:
+        t = time.perf_counter()
         self.populate_vocab()
         pretokens, count = self.get_pretokenized_corpus()
-        byte_pairs = self.generate_byte_pairs(pretokens, count)
-        arg_max = max(((freq, pair) for pair, freq in byte_pairs.items()), default=None)
+        t_pretokenize = time.perf_counter() - t
+
+        t = time.perf_counter()
+        byte_pairs, pair_map = self.generate_byte_pairs(pretokens, count)
+        t_initial_count = time.perf_counter() - t
+
+        t_argmax = 0.0
+        t_merge = 0.0
+        n_merges = 0
         vocab_len = len(self.vocab)
+
+        t = time.perf_counter()
+        arg_max = max(((freq, pair) for pair, freq in byte_pairs.items()), default=None)
+        t_argmax += time.perf_counter() - t
+
         for i in range(self.extended_vocab_count):
             if not arg_max:
                 print("no arg max!")
                 break
             if arg_max[0] == 0:
                 break
-            self.merge(byte_pairs, pretokens, count, arg_max[1], vocab_len + i)
+
+            t = time.perf_counter()
+            self.merge(byte_pairs, pretokens, count, arg_max[1], pair_map, vocab_len + i)
+            t_merge += time.perf_counter() - t
+            n_merges += 1
+
             # can be optimized to be dynamic
+            t = time.perf_counter()
             arg_max = max(((freq, pair) for pair, freq in byte_pairs.items()), default=None)
-        # self.dump("final", pretoken_set, byte_pairs)
+            t_argmax += time.perf_counter() - t
+
+        self.timings = {
+            "pretokenize": t_pretokenize,
+            "initial_pair_count": t_initial_count,
+            "merge": t_merge,
+            "argmax": t_argmax,
+        }
+        self.timings["total"] = sum(self.timings.values())
+        self.n_merges = n_merges
+        self.n_pretokens = len(pretokens)
+
+        if verbose:
+            self.report_timings()
+
+    def report_timings(self) -> None:
+        total = self.timings["total"]
+        print(f"\n===== timings ({self.n_merges} merges, {self.n_pretokens} distinct pretokens) =====")
+        for name, secs in sorted(self.timings.items(), key=lambda kv: -kv[1]):
+            if name == "total":
+                continue
+            print(f"  {name:<20} {secs:7.3f}s  {100 * secs / total:5.1f}%")
+        print(f"  {'total':<20} {total:7.3f}s")
+        if self.n_merges:
+            print(f"  per merge: {1000 * (self.timings['merge'] + self.timings['argmax']) / self.n_merges:.3f} ms")
 
     def dump(
         self,
@@ -205,9 +270,13 @@ class BPETrainer:
 # content = Path("input.txt").read_text(encoding="utf-8")
 
 if __name__ == "__main__":
-    text = Path("../data/text.txt")
+    text = Path("../data/TinyStoriesV2-GPT4-valid.txt")
     bpe = BPETrainer(text, 1000, ["<|endoftext|>"])
-    bpe.train()
-    print(bpe.get_merges())
-    print(bpe.get_vocab())
+    bpe.train(True)
+    merges = bpe.get_merges()
+    vocab = bpe.get_vocab()
+    from cs336_basics.serialization import save, load
+
+    vocab_path, merges_path = save(vocab, merges, Path("out/owt"))
+    # vocab, merges = load(vocab_path, merges_path)
 
