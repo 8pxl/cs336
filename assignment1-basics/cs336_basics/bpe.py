@@ -217,6 +217,14 @@ class BPETrainer:
         del byte_pairs[pair]
         del pair_map[pair]
 
+
+    def pop_max(self, byte_pairs: dict[BytePair, int]) -> tuple[int, BytePair] | None:
+        while self.pair_heap:
+            neg, mp = heapq.heappop(self.pair_heap)
+            if byte_pairs.get(mp.pair, 0) == -neg:
+                return -neg, mp.pair
+        return None
+
     def train(self, verbose: bool = False) -> None:
         t = time.perf_counter()
         self.populate_vocab()
@@ -234,19 +242,20 @@ class BPETrainer:
 
         t = time.perf_counter()
         # arg_max = max(((freq, pair) for pair, freq in byte_pairs.items()), default=None)
-        arg_max = heapq.heappop(self.pair_heap)
+        # arg_max = self.pop_max(byte_pairs)
+        # assert(arg_max)
         t_argmax += time.perf_counter() - t
 
         for i in range(self.extended_vocab_count):
             print(f"progress: {(100.0 * (i / self.extended_vocab_count)):.3f}%")
-            if not arg_max:
-                print("no arg max!")
+
+            best = self.pop_max(byte_pairs)
+            if best is None or best[0] <= 0:
                 break
-            if arg_max[0] == 0:
-                break
+            _, pair = best
 
             t = time.perf_counter()
-            self.merge(byte_pairs, pretokens, count, arg_max[1].pair, pair_map, vocab_len + i)
+            self.merge(byte_pairs, pretokens, count, pair, pair_map, vocab_len + i)
             dt = time.perf_counter() - t
             t_merge += dt
             self.merge_times.append(dt)
@@ -255,9 +264,9 @@ class BPETrainer:
             # can be optimized to be dynamic
             t = time.perf_counter()
             # arg_max = max(((freq, pair) for pair, freq in byte_pairs.items()), default=None)
-            arg_max = heapq.heappop(self.pair_heap)
-            while byte_pairs[arg_max[1].pair] != arg_max[0]:
-                arg_max = heapq.heappop(self.pair_heap)
+
+            #since we are pushing old instances of pairs
+
 
             t_argmax += time.perf_counter() - t
 
