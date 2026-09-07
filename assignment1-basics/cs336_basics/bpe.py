@@ -171,6 +171,7 @@ class BPETrainer:
         self.vocab[token_id] = pair_as_bytes
         self.merges.append(pair)
 
+        deltas: set[BytePair] = set()
         for i in pair_map[pair]:
             freq = freqs[i]
             j = 0
@@ -187,9 +188,11 @@ class BPETrainer:
 
                         new_left_freq = byte_pairs.get(new_left, 0) + freq
                         byte_pairs[new_left] = new_left_freq
+                        deltas.add(left)
+                        deltas.add(new_left)
 
-                        heapq.heappush(self.pair_heap, (-left_freq, MaxPair(left)))
-                        heapq.heappush(self.pair_heap, (-new_left_freq, MaxPair(new_left)))
+                        # heapq.heappush(self.pair_heap, (-left_freq, MaxPair(left)))
+                        # heapq.heappush(self.pair_heap, (-new_left_freq, MaxPair(new_left)))
 
                         if new_left not in pair_map:
                             pair_map[new_left] = {i}
@@ -207,13 +210,20 @@ class BPETrainer:
                         new_right_freq = byte_pairs.get(new_right, 0) + freq
                         byte_pairs[new_right] = new_right_freq
 
-                        heapq.heappush(self.pair_heap, (-right_freq, MaxPair(right)))
-                        heapq.heappush(self.pair_heap, (-new_right_freq, MaxPair(new_right)))
+                        deltas.add(right)
+                        deltas.add(new_right)
+
+                        # heapq.heappush(self.pair_heap, (-right_freq, MaxPair(right)))
+                        # heapq.heappush(self.pair_heap, (-new_right_freq, MaxPair(new_right)))
                         if new_right not in pair_map:
                             pair_map[new_right] = {i}
                         else:
                             pair_map[new_right].add(i)
                 j += 1
+        for d in deltas:
+            count = -byte_pairs[d]
+            if count > 0:
+                heapq.heappush(self.pair_heap, (-byte_pairs[d], MaxPair(d)))
         del byte_pairs[pair]
         del pair_map[pair]
 
@@ -247,7 +257,8 @@ class BPETrainer:
         t_argmax += time.perf_counter() - t
 
         for i in range(self.extended_vocab_count):
-            print(f"progress: {(100.0 * (i / self.extended_vocab_count)):.3f}%")
+            # if verbose and (i % 500 == 0):
+            #     print(f"progress: {(100.0 * (i / self.extended_vocab_count)):.3f}%")
 
             best = self.pop_max(byte_pairs)
             if best is None or best[0] <= 0:
